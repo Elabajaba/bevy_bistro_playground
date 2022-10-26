@@ -5,4 +5,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-bevy = "0.8"
+# bevy = "0.8"
+# bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main" }
+# bevy = { path = "F:/temp/bevy" }
+bevy = { git = "https://github.com/JMS55/bevy.git", branch = "taa" }
+
+[patch.crates-io]
+# wgpu = { git = "https://github.com/Elabajaba/wgpu.git", branch = "014-dx12-gpuallocator", features = ["spirv"] }
