@@ -1,9 +1,6 @@
 use bevy::{
     input::mouse::MouseMotion,
-    pbr::{
-        DirectionalLightShadowMap, GlobalMaterialOptions, NotShadowCaster, NotShadowReceiver,
-        PointLightShadowMap,
-    },
+    pbr::{DirectionalLightShadowMap, NotShadowCaster, NotShadowReceiver, PointLightShadowMap},
     prelude::*,
     render::mesh::VertexAttributeValues,
     scene::InstanceId,
@@ -13,7 +10,7 @@ use bevy::{
 #[cfg(feature = "taa")]
 use bevy::{
     core_pipeline::core_3d::PrepassSettings,
-    pbr::{TemporalAntialiasPlugin, TemporalAntialiasSettings},
+    pbr::{GlobalMaterialOptions, TemporalAntialiasPlugin, TemporalAntialiasSettings},
 };
 
 fn main() {
@@ -23,18 +20,19 @@ fn main() {
     })
     .insert_resource(DirectionalLightShadowMap {
         size: 2_usize.pow(13),
-    })
-    .insert_resource(GlobalMaterialOptions {
+    });
+    #[cfg(feature = "taa")]
+    app.insert_resource(GlobalMaterialOptions {
         prepass_enabled: true,
-    })
-    .add_plugins(DefaultPlugins)
-    .add_startup_system(setup)
-    .add_startup_system(info)
-    .add_system(fix_cameras)
-    .add_system(night_and_day)
-    .add_system(scene_update)
-    .add_system(input)
-    .add_system(camera_controller);
+    });
+    app.add_plugins(DefaultPlugins)
+        .add_startup_system(setup)
+        .add_startup_system(info)
+        .add_system(fix_cameras)
+        .add_system(night_and_day)
+        .add_system(scene_update)
+        .add_system(input)
+        .add_system(camera_controller);
 
     #[cfg(feature = "taa")]
     app.add_plugin(TemporalAntialiasPlugin);
@@ -63,9 +61,11 @@ fn fix_cameras(mut commands: Commands, camera_entities: Query<Entity, With<Camer
             ))
             .insert(CameraController::default());
     } else {
-        #[cfg(feature = "taa")]
         commands.entity(single_camera.unwrap()).insert((
+            CameraController::default(),
+            #[cfg(feature = "taa")]
             PrepassSettings::default(),
+            #[cfg(feature = "taa")]
             TemporalAntialiasSettings::default(),
         ));
     }
