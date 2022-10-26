@@ -1,37 +1,43 @@
 use bevy::{
-    core_pipeline::core_3d::PrepassSettings,
     input::mouse::MouseMotion,
-    pbr::{
-        DirectionalLightShadowMap, GlobalMaterialOptions, NotShadowCaster, NotShadowReceiver,
-        PointLightShadowMap, TemporalAntialiasPlugin, TemporalAntialiasSettings,
-    },
+    pbr::{DirectionalLightShadowMap, NotShadowCaster, NotShadowReceiver, PointLightShadowMap},
     prelude::*,
     render::mesh::VertexAttributeValues,
     scene::InstanceId,
     utils::HashSet,
 };
 
+#[cfg(feature = "taa")]
+use bevy::{
+    core_pipeline::core_3d::PrepassSettings,
+    pbr::{GlobalMaterialOptions, TemporalAntialiasPlugin, TemporalAntialiasSettings},
+};
+
 fn main() {
-    App::new()
-        .insert_resource(PointLightShadowMap {
-            size: 2_usize.pow(11),
-        })
-        .insert_resource(DirectionalLightShadowMap {
-            size: 2_usize.pow(13),
-        })
-        .insert_resource(GlobalMaterialOptions {
-            prepass_enabled: true,
-        })
-        .add_plugins(DefaultPlugins)
-        .add_plugin(TemporalAntialiasPlugin)
-        .add_startup_system(setup)
-        .add_startup_system(info)
-        .add_system(fix_cameras)
-        .add_system(night_and_day)
-        .add_system(scene_update)
-        .add_system(input)
-        .add_system(camera_controller)
-        .run();
+    let mut app = App::new();
+    app.insert_resource(PointLightShadowMap {
+        size: 2_usize.pow(11),
+    })
+    .insert_resource(DirectionalLightShadowMap {
+        size: 2_usize.pow(13),
+    })
+    .add_plugins(DefaultPlugins)
+    .add_startup_system(setup)
+    .add_startup_system(info)
+    .add_system(fix_cameras)
+    .add_system(night_and_day)
+    .add_system(scene_update)
+    .add_system(input)
+    .add_system(camera_controller);
+
+    #[cfg(feature = "taa")]
+    app.insert_resource(GlobalMaterialOptions {
+        prepass_enabled: true,
+    })
+    .add_plugin(TemporalAntialiasPlugin);
+
+    app.run();
+    // .run();
 }
 
 fn fix_cameras(mut commands: Commands, camera_entities: Query<Entity, With<Camera>>) {
@@ -48,7 +54,9 @@ fn fix_cameras(mut commands: Commands, camera_entities: Query<Entity, With<Camer
                         .looking_at(Vec3::new(0.0, 1., 0.0), Vec3::Y),
                     ..Default::default()
                 },
+                #[cfg(feature = "taa")]
                 PrepassSettings::default(),
+                #[cfg(feature = "taa")]
                 TemporalAntialiasSettings::default(),
             ))
             .insert(CameraController::default());
@@ -143,93 +151,97 @@ fn scene_update(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if let Some(instance_id) = scene_instance.interior {
-        scene_spawner
-            .iter_instance_entities(instance_id)
-            .for_each(|entity| {
-                if let Ok((entity, name, children)) = named_entities.get(entity) {
-                    if name.starts_with("Bistro_Research_Interior_Paris_Ceiling_Light") {
-                        // One of the interior ceiling light:
-                        // - Spawn a point light
-                        // - Make the mesh not casting shadows
-                        let child = children[0];
-                        commands.entity(child).insert(NotShadowCaster);
-                        // For those lights, they are not transformed to their place, but the mesh is moved.
-                        // We find the center of the mesh, which is where the light should be.
-                        if let Ok(mesh_handle) = has_mesh.get(child) {
-                            if let Some(mesh) = meshes.get(mesh_handle) {
-                                if let Some(VertexAttributeValues::Float32x3(attr)) =
-                                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-                                {
-                                    let sum =
-                                        attr.iter().fold(Vec3::ZERO, |acc, v| acc + Vec3::from(*v));
-                                    let center = sum / attr.iter().count() as f32 * 0.016;
-                                    commands
-                                        .spawn(PointLightBundle {
-                                            transform: Transform::from_translation(center)
-                                                .with_scale(Vec3::splat(0.16)),
-                                            point_light: PointLight {
-                                                color: Color::rgb(1.0, 0.9, 0.4),
-                                                intensity: LIGHT_SETTINGS.ceiling,
-                                                range: LIGHT_SETTINGS.ceiling
-                                                    / LIGHT_SETTINGS.range_ratio,
+        if scene_spawner.instance_is_ready(instance_id) {
+            scene_spawner
+                .iter_instance_entities(instance_id)
+                .for_each(|entity| {
+                    if let Ok((entity, name, children)) = named_entities.get(entity) {
+                        if name.starts_with("Bistro_Research_Interior_Paris_Ceiling_Light") {
+                            // One of the interior ceiling light:
+                            // - Spawn a point light
+                            // - Make the mesh not casting shadows
+                            let child = children[0];
+                            commands.entity(child).insert(NotShadowCaster);
+                            // For those lights, they are not transformed to their place, but the mesh is moved.
+                            // We find the center of the mesh, which is where the light should be.
+                            if let Ok(mesh_handle) = has_mesh.get(child) {
+                                if let Some(mesh) = meshes.get(mesh_handle) {
+                                    if let Some(VertexAttributeValues::Float32x3(attr)) =
+                                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                                    {
+                                        let sum = attr
+                                            .iter()
+                                            .fold(Vec3::ZERO, |acc, v| acc + Vec3::from(*v));
+                                        let center = sum / attr.iter().count() as f32 * 0.016;
+                                        commands
+                                            .spawn(PointLightBundle {
+                                                transform: Transform::from_translation(center)
+                                                    .with_scale(Vec3::splat(0.16)),
+                                                point_light: PointLight {
+                                                    color: Color::rgb(1.0, 0.9, 0.4),
+                                                    intensity: LIGHT_SETTINGS.ceiling,
+                                                    range: LIGHT_SETTINGS.ceiling
+                                                        / LIGHT_SETTINGS.range_ratio,
+                                                    ..Default::default()
+                                                },
                                                 ..Default::default()
-                                            },
-                                            ..Default::default()
-                                        })
-                                        .insert(Ceiling);
+                                            })
+                                            .insert(Ceiling);
+                                    }
                                 }
                             }
                         }
-                    }
-                    if name.starts_with("Bistro_Research_Interior_Paris_Wall_Light_Interior") {
-                        // One of the interior wall light:
-                        // - Spawn a point light
-                        // - Make the mesh not casting shadows
-                        let child = children[0];
-                        commands.entity(child).insert(NotShadowCaster);
-                        // For those lights, they are not transformed to their place, but the mesh is moved.
-                        // We find the center of the mesh, which is where the light should be.
-                        if let Ok(mesh_handle) = has_mesh.get(child) {
-                            if let Some(mesh) = meshes.get(mesh_handle) {
-                                if let Some(VertexAttributeValues::Float32x3(attr)) =
-                                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-                                {
-                                    let sum =
-                                        attr.iter().fold(Vec3::ZERO, |acc, v| acc + Vec3::from(*v));
-                                    let center = sum / attr.iter().count() as f32 * 0.016;
-                                    commands
-                                        .spawn(PointLightBundle {
-                                            transform: Transform::from_translation(center)
-                                                .with_scale(Vec3::splat(0.16)),
-                                            point_light: PointLight {
-                                                color: Color::rgb(1.0, 0.9, 0.4),
-                                                intensity: LIGHT_SETTINGS.ceiling,
-                                                range: LIGHT_SETTINGS.ceiling
-                                                    / LIGHT_SETTINGS.range_ratio,
+                        if name.starts_with("Bistro_Research_Interior_Paris_Wall_Light_Interior") {
+                            // One of the interior wall light:
+                            // - Spawn a point light
+                            // - Make the mesh not casting shadows
+                            let child = children[0];
+                            commands.entity(child).insert(NotShadowCaster);
+                            // For those lights, they are not transformed to their place, but the mesh is moved.
+                            // We find the center of the mesh, which is where the light should be.
+                            if let Ok(mesh_handle) = has_mesh.get(child) {
+                                if let Some(mesh) = meshes.get(mesh_handle) {
+                                    if let Some(VertexAttributeValues::Float32x3(attr)) =
+                                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                                    {
+                                        let sum = attr
+                                            .iter()
+                                            .fold(Vec3::ZERO, |acc, v| acc + Vec3::from(*v));
+                                        let center = sum / attr.iter().count() as f32 * 0.016;
+                                        commands
+                                            .spawn(PointLightBundle {
+                                                transform: Transform::from_translation(center)
+                                                    .with_scale(Vec3::splat(0.16)),
+                                                point_light: PointLight {
+                                                    color: Color::rgb(1.0, 0.9, 0.4),
+                                                    intensity: LIGHT_SETTINGS.ceiling,
+                                                    range: LIGHT_SETTINGS.ceiling
+                                                        / LIGHT_SETTINGS.range_ratio,
+                                                    ..Default::default()
+                                                },
                                                 ..Default::default()
-                                            },
-                                            ..Default::default()
-                                        })
-                                        .insert(Wall);
+                                            })
+                                            .insert(Wall);
+                                    }
                                 }
                             }
+                        } // This are exterior elements from the interior scene, remove them
+                        if name.contains("Exterior") {
+                            commands.entity(entity).despawn_recursive();
                         }
-                    } // This are exterior elements from the interior scene, remove them
-                    if name.contains("Exterior") {
-                        commands.entity(entity).despawn_recursive();
+                        if name.ends_with("WineGlass")
+                            || name.ends_with("WineGlass2.008")
+                            || name.ends_with("WineGlass4.008")
+                        {
+                            commands.entity(entity).despawn_recursive();
+                        }
                     }
-                    if name.ends_with("WineGlass")
-                        || name.ends_with("WineGlass2.008")
-                        || name.ends_with("WineGlass4.008")
-                    {
-                        commands.entity(entity).despawn_recursive();
-                    }
-                }
-            });
-        for (_, mut material) in materials.iter_mut() {
-            material.flip_normal_map_y = true;
+                });
+            for (_, mut material) in materials.iter_mut() {
+                material.flip_normal_map_y = true;
+            }
+            scene_instance.interior = None;
         }
-        scene_instance.interior = None;
     }
     if let Some(instance_id) = scene_instance.exterior {
         let sphere = meshes.add(Mesh::from(shape::UVSphere {
@@ -243,114 +255,118 @@ fn scene_update(
         });
         let mut materials_to_fix = HashSet::default();
 
-        scene_spawner
-            .iter_instance_entities(instance_id)
-            .for_each(|entity| {
-                if let Ok((entity, name, children)) = named_entities.get(entity) {
-                    if name.starts_with("Lantern_Wind") {
-                        // One of the lantern:
-                        // - Spawn a point light
-                        // - Make the mesh not casting shadows
-                        // - Make the material transparent
-                        // - Spawn a "lightbulb"
-                        commands.entity(entity).with_children(|lantern| {
-                            lantern
-                                .spawn(PbrBundle {
-                                    mesh: sphere.clone(),
-                                    material: material.clone(),
-                                    transform: Transform::from_xyz(0.0, -80.0, 0.0),
-                                    ..Default::default()
-                                })
-                                .insert((NotShadowCaster, NotShadowReceiver));
-                            lantern
-                                .spawn(PointLightBundle {
-                                    transform: Transform::from_xyz(0.0, -80.0, 0.0),
-                                    point_light: PointLight {
-                                        color: Color::rgb(1.0, 0.9, 0.5),
-                                        intensity: LIGHT_SETTINGS.lantern,
-                                        range: LIGHT_SETTINGS.lantern / LIGHT_SETTINGS.range_ratio,
+        if scene_spawner.instance_is_ready(instance_id) {
+            scene_spawner
+                .iter_instance_entities(instance_id)
+                .for_each(|entity| {
+                    if let Ok((entity, name, children)) = named_entities.get(entity) {
+                        if name.starts_with("Lantern_Wind") {
+                            // One of the lantern:
+                            // - Spawn a point light
+                            // - Make the mesh not casting shadows
+                            // - Make the material transparent
+                            // - Spawn a "lightbulb"
+                            commands.entity(entity).with_children(|lantern| {
+                                lantern
+                                    .spawn(PbrBundle {
+                                        mesh: sphere.clone(),
+                                        material: material.clone(),
+                                        transform: Transform::from_xyz(0.0, -80.0, 0.0),
                                         ..Default::default()
-                                    },
-                                    ..Default::default()
-                                })
-                                .insert(Lantern);
-                        });
-                        for child in children.iter() {
-                            commands.entity(*child).insert(NotShadowCaster);
-                            if let Ok(material) = has_material.get(*child) {
+                                    })
+                                    .insert((NotShadowCaster, NotShadowReceiver));
+                                lantern
+                                    .spawn(PointLightBundle {
+                                        transform: Transform::from_xyz(0.0, -80.0, 0.0),
+                                        point_light: PointLight {
+                                            color: Color::rgb(1.0, 0.9, 0.5),
+                                            intensity: LIGHT_SETTINGS.lantern,
+                                            range: LIGHT_SETTINGS.lantern
+                                                / LIGHT_SETTINGS.range_ratio,
+                                            ..Default::default()
+                                        },
+                                        ..Default::default()
+                                    })
+                                    .insert(Lantern);
+                            });
+                            for child in children.iter() {
+                                commands.entity(*child).insert(NotShadowCaster);
+                                if let Ok(material) = has_material.get(*child) {
+                                    materials_to_fix.insert(material);
+                                }
+                            }
+                        }
+                        if name.starts_with("Bistro_Research_Exterior_Paris_StreetLight") {
+                            let child = children[0];
+                            commands.entity(child).insert(NotShadowCaster);
+                        }
+                        if name.starts_with("Bistro_Research_Exterior_Paris_Streetlight_Glass")
+                            || name.starts_with("Bistro_Research_Exterior_Paris_StreetLight_Glass")
+                        {
+                            // One of the streetlights:
+                            // - Spawn a point light
+                            // - Make the mesh not casting shadows
+                            // - Make the material transparent
+                            let child = children[0];
+                            commands.entity(child).insert(NotShadowCaster);
+                            if let Ok(material) = has_material.get(child) {
+                                materials_to_fix.insert(material);
+                            }
+                            // For those lights, they are not transformed to their place, but the mesh is moved.
+                            // We find the center of the mesh, which is where the light should be.
+                            if let Ok(mesh_handle) = has_mesh.get(child) {
+                                if let Some(mesh) = meshes.get(mesh_handle) {
+                                    if let Some(VertexAttributeValues::Float32x3(attr)) =
+                                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                                    {
+                                        let sum = attr
+                                            .iter()
+                                            .fold(Vec3::ZERO, |acc, v| acc + Vec3::from(*v));
+                                        let center = sum / attr.iter().count() as f32 * 0.016;
+                                        commands
+                                            .spawn(PointLightBundle {
+                                                transform: Transform::from_translation(center)
+                                                    .with_scale(Vec3::splat(0.16)),
+                                                point_light: PointLight {
+                                                    color: Color::rgb(1.0, 0.9, 0.65),
+                                                    intensity: LIGHT_SETTINGS.streetlight,
+                                                    range: LIGHT_SETTINGS.streetlight
+                                                        / LIGHT_SETTINGS.range_ratio,
+                                                    ..Default::default()
+                                                },
+                                                ..Default::default()
+                                            })
+                                            .insert(StreetLight);
+                                    }
+                                }
+                            }
+                        }
+                        if *name
+                            == Name::new(
+                                "Bistro_Research_Exterior_Paris_Building_01_paris_buildi_19bd23d",
+                            )
+                        {
+                            // This is the glass of the front door, make it transparent
+                            let child = children[0];
+                            commands.entity(child).insert(NotShadowCaster);
+                            if let Ok(material) = has_material.get(child) {
                                 materials_to_fix.insert(material);
                             }
                         }
                     }
-                    if name.starts_with("Bistro_Research_Exterior_Paris_StreetLight") {
-                        let child = children[0];
-                        commands.entity(child).insert(NotShadowCaster);
-                    }
-                    if name.starts_with("Bistro_Research_Exterior_Paris_Streetlight_Glass")
-                        || name.starts_with("Bistro_Research_Exterior_Paris_StreetLight_Glass")
-                    {
-                        // One of the streetlights:
-                        // - Spawn a point light
-                        // - Make the mesh not casting shadows
-                        // - Make the material transparent
-                        let child = children[0];
-                        commands.entity(child).insert(NotShadowCaster);
-                        if let Ok(material) = has_material.get(child) {
-                            materials_to_fix.insert(material);
-                        }
-                        // For those lights, they are not transformed to their place, but the mesh is moved.
-                        // We find the center of the mesh, which is where the light should be.
-                        if let Ok(mesh_handle) = has_mesh.get(child) {
-                            if let Some(mesh) = meshes.get(mesh_handle) {
-                                if let Some(VertexAttributeValues::Float32x3(attr)) =
-                                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-                                {
-                                    let sum =
-                                        attr.iter().fold(Vec3::ZERO, |acc, v| acc + Vec3::from(*v));
-                                    let center = sum / attr.iter().count() as f32 * 0.016;
-                                    commands
-                                        .spawn(PointLightBundle {
-                                            transform: Transform::from_translation(center)
-                                                .with_scale(Vec3::splat(0.16)),
-                                            point_light: PointLight {
-                                                color: Color::rgb(1.0, 0.9, 0.65),
-                                                intensity: LIGHT_SETTINGS.streetlight,
-                                                range: LIGHT_SETTINGS.streetlight
-                                                    / LIGHT_SETTINGS.range_ratio,
-                                                ..Default::default()
-                                            },
-                                            ..Default::default()
-                                        })
-                                        .insert(StreetLight);
-                                }
-                            }
-                        }
-                    }
-                    if *name
-                        == Name::new(
-                            "Bistro_Research_Exterior_Paris_Building_01_paris_buildi_19bd23d",
-                        )
-                    {
-                        // This is the glass of the front door, make it transparent
-                        let child = children[0];
-                        commands.entity(child).insert(NotShadowCaster);
-                        if let Ok(material) = has_material.get(child) {
-                            materials_to_fix.insert(material);
-                        }
-                    }
+                });
+            for material in materials_to_fix.drain() {
+                let material = materials.get_mut(material).unwrap();
+                if material.alpha_mode == AlphaMode::Opaque {
+                    material.base_color.set_a(0.2);
+                    material.alpha_mode = AlphaMode::Blend;
                 }
-            });
-        for material in materials_to_fix.drain() {
-            let material = materials.get_mut(material).unwrap();
-            if material.alpha_mode == AlphaMode::Opaque {
-                material.base_color.set_a(0.2);
-                material.alpha_mode = AlphaMode::Blend;
             }
+            for (_, mut material) in materials.iter_mut() {
+                material.flip_normal_map_y = true;
+            }
+            scene_instance.exterior = None;
         }
-        for (_, mut material) in materials.iter_mut() {
-            material.flip_normal_map_y = true;
-        }
-        scene_instance.exterior = None;
     }
 }
 

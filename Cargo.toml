@@ -12,3 +12,6 @@ bevy = { git = "https://github.com/JMS55/bevy.git", branch = "taa" }
 
 [patch.crates-io]
 # wgpu = { git = "https://github.com/Elabajaba/wgpu.git", branch = "014-dx12-gpuallocator", features = ["spirv"] }
+
+[features]
+taa = []
