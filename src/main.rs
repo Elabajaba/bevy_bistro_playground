@@ -1,6 +1,9 @@
 use bevy::{
     input::mouse::MouseMotion,
-    pbr::{DirectionalLightShadowMap, NotShadowCaster, NotShadowReceiver, PointLightShadowMap},
+    pbr::{
+        DirectionalLightShadowMap, GlobalMaterialOptions, NotShadowCaster, NotShadowReceiver,
+        PointLightShadowMap,
+    },
     prelude::*,
     render::mesh::VertexAttributeValues,
     scene::InstanceId,
@@ -10,7 +13,7 @@ use bevy::{
 #[cfg(feature = "taa")]
 use bevy::{
     core_pipeline::core_3d::PrepassSettings,
-    pbr::{GlobalMaterialOptions, TemporalAntialiasPlugin, TemporalAntialiasSettings},
+    pbr::{TemporalAntialiasPlugin, TemporalAntialiasSettings},
 };
 
 fn main() {
@@ -20,6 +23,9 @@ fn main() {
     })
     .insert_resource(DirectionalLightShadowMap {
         size: 2_usize.pow(13),
+    })
+    .insert_resource(GlobalMaterialOptions {
+        prepass_enabled: true,
     })
     .add_plugins(DefaultPlugins)
     .add_startup_system(setup)
@@ -31,18 +37,14 @@ fn main() {
     .add_system(camera_controller);
 
     #[cfg(feature = "taa")]
-    app.insert_resource(GlobalMaterialOptions {
-        prepass_enabled: true,
-    })
-    .add_plugin(TemporalAntialiasPlugin);
+    app.add_plugin(TemporalAntialiasPlugin);
 
     app.run();
-    // .run();
 }
 
 fn fix_cameras(mut commands: Commands, camera_entities: Query<Entity, With<Camera>>) {
-    let temp = camera_entities.get_single();
-    if temp.is_err() {
+    let single_camera = camera_entities.get_single();
+    if single_camera.is_err() {
         for camera in &camera_entities {
             commands.entity(camera).despawn();
         }
@@ -60,6 +62,12 @@ fn fix_cameras(mut commands: Commands, camera_entities: Query<Entity, With<Camer
                 TemporalAntialiasSettings::default(),
             ))
             .insert(CameraController::default());
+    } else {
+        #[cfg(feature = "taa")]
+        commands.entity(single_camera.unwrap()).insert((
+            PrepassSettings::default(),
+            TemporalAntialiasSettings::default(),
+        ));
     }
 }
 
